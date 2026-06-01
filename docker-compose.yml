@@ -1,0 +1,15 @@
+services:
+  thread-automation:
+    build: .
+    env_file:
+      - .env
+    environment:
+      PORT: ${PORT:-3002}
+      THREADS_HEADLESS: ${THREADS_HEADLESS:-true}
+      THREADS_MANUAL_LOGIN: ${THREADS_MANUAL_LOGIN:-false}
+      THREADS_SESSION_PATH: /app/data/threads-session.json
+    ports:
+      - "${PORT:-3002}:${PORT:-3002}"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

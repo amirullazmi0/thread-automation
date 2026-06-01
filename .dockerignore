@@ -1,0 +1,10 @@
+.git
+dist
+node_modules
+coverage
+.env
+.env.*
+threads-session.json
+*.log
+Dockerfile
+docker-compose.yml
