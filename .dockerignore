@@ -1,10 +1,12 @@
 .git
+.playwright
 dist
 node_modules
 coverage
+data
 .env
 .env.*
 threads-session.json
 *.log
-Dockerfile
-docker-compose.yml
+logs
+tmp-*.log

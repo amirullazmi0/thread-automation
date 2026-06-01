@@ -12,6 +12,7 @@ import { ThreadsBotService } from './threads-bot.service';
 export class ThreadsBotController {
   constructor(private readonly threadsBotService: ThreadsBotService) {}
 
+  // Manual trigger endpoint for posting up to maxPosts items.
   @Post('run-once')
   async runOnce(
     @Query('maxPosts') maxPostsQuery?: string,
@@ -29,6 +30,7 @@ export class ThreadsBotController {
     return { posted };
   }
 
+  // Parses and bounds the manual trigger maxPosts query parameter.
   private parseMaxPosts(value?: string): number {
     if (!value) {
       return 1;

@@ -1,56 +1,50 @@
-import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { XMLParser } from 'fast-xml-parser';
 import { createHash } from 'node:crypto';
-import { firstValueFrom } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiCaptionService } from './ai-caption.service';
+import { RawNewsItem } from './dto/threads-bot.dto';
+import { ThreadsBotRepository } from './threads-bot.repository';
 import { ThreadsBrowserService } from './threads-browser.service';
-
-interface RawNewsItem {
-  title: string;
-  description: string;
-  sourceUrl: string;
-}
-
-interface GoogleNewsRss {
-  rss?: {
-    channel?: {
-      item?: GoogleNewsRssItem | GoogleNewsRssItem[];
-    };
-  };
-}
-
-interface GoogleNewsRssItem {
-  title?: string;
-  link?: string;
-  description?: string;
-}
 
 @Injectable()
 export class ThreadsBotService {
   private readonly logger = new Logger(ThreadsBotService.name);
-  private readonly xmlParser = new XMLParser({
-    ignoreAttributes: false,
-  });
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly threadsBrowserService: ThreadsBrowserService,
-    private readonly httpService: HttpService,
     private readonly aiCaptionService: AiCaptionService,
+    private readonly threadsBotRepository: ThreadsBotRepository,
   ) {}
 
-  @Cron(CronExpression.EVERY_HOUR)
+  // Runs the scheduled posting loop when THREADS_AUTO_SCHEDULE is enabled.
+  @Cron(CronExpression.EVERY_30_MINUTES)
   async runHourlyTrendLoop(): Promise<void> {
+    if (process.env.THREADS_AUTO_SCHEDULE !== 'true') {
+      this.logger.log(
+        'Hourly trends scan skipped; THREADS_AUTO_SCHEDULE is not true',
+      );
+      return;
+    }
+
     this.logger.log('Starting hourly trends scan');
 
     try {
-      const latestNews = await this.fetchLatestNews();
+      const latestNews = await this.threadsBotRepository.fetchLatestNews();
+      const maxPosts = Number(process.env.THREADS_SCHEDULE_MAX_POSTS ?? 1);
+      let postedCount = 0;
 
       for (const item of latestNews) {
-        await this.processNewsItem(item);
+        const posted = await this.processNewsItem(item);
+
+        if (posted) {
+          postedCount += 1;
+        }
+
+        if (postedCount >= maxPosts) {
+          break;
+        }
       }
     } catch (error) {
       this.logger.error('Hourly trends scan failed', error);
@@ -58,10 +52,11 @@ export class ThreadsBotService {
     }
   }
 
+  // Runs a manual one-shot scan and returns the number of successful posts.
   async runOnce(maxPosts = 1): Promise<number> {
     this.logger.log(`Starting one-time trends scan, max posts: ${maxPosts}`);
 
-    const latestNews = await this.fetchLatestNews();
+    const latestNews = await this.threadsBotRepository.fetchLatestNews();
     let postedCount = 0;
 
     for (const item of latestNews) {
@@ -80,6 +75,7 @@ export class ThreadsBotService {
     return postedCount;
   }
 
+  // Handles duplicate detection, caption generation, browser posting, and DB save.
   private async processNewsItem(item: RawNewsItem): Promise<boolean> {
     const contentHash = this.generateContentHash(item);
     const existingPost = await this.prisma.newsPost.findUnique({
@@ -90,7 +86,13 @@ export class ThreadsBotService {
       this.logger.log(`New post detected: ${item.sourceUrl}`);
 
       const caption = await this.aiCaptionService.generateCaption(item, false);
-      await this.threadsBrowserService.postToThreads(caption);
+      const imagePath = await this.threadsBotRepository.downloadPostImage(item);
+
+      try {
+        await this.threadsBrowserService.postToThreads(caption, imagePath);
+      } finally {
+        await this.threadsBotRepository.cleanupDownloadedImage(imagePath);
+      }
 
       await this.prisma.newsPost.create({
         data: {
@@ -108,7 +110,13 @@ export class ThreadsBotService {
       this.logger.log(`Update detected: ${item.sourceUrl}`);
 
       const caption = await this.aiCaptionService.generateCaption(item, true);
-      await this.threadsBrowserService.postToThreads(caption);
+      const imagePath = await this.threadsBotRepository.downloadPostImage(item);
+
+      try {
+        await this.threadsBrowserService.postToThreads(caption, imagePath);
+      } finally {
+        await this.threadsBotRepository.cleanupDownloadedImage(imagePath);
+      }
 
       await this.prisma.newsPost.update({
         where: { sourceUrl: item.sourceUrl },
@@ -127,105 +135,10 @@ export class ThreadsBotService {
     return false;
   }
 
+  // Builds a stable hash to detect whether a known source has changed.
   private generateContentHash(item: RawNewsItem): string {
     return createHash('md5')
       .update(`${item.title}:${item.description}`)
       .digest('hex');
-  }
-
-  private async fetchLatestNews(): Promise<RawNewsItem[]> {
-    const endpoint = process.env.NEWS_SOURCE_URL;
-
-    if (endpoint) {
-      const response = await firstValueFrom(
-        this.httpService.get<RawNewsItem[]>(endpoint, { proxy: false }),
-      );
-
-      return response.data;
-    }
-
-    return this.fetchGoogleNewsRss();
-  }
-
-  private async fetchGoogleNewsRss(): Promise<RawNewsItem[]> {
-    const queries = this.getGoogleNewsQueries();
-    const maxItems = Number(process.env.GOOGLE_NEWS_MAX_ITEMS ?? 20);
-    const newsByUrl = new Map<string, RawNewsItem>();
-
-    for (const query of queries) {
-      const items = await this.fetchGoogleNewsQuery(query);
-
-      for (const item of items) {
-        newsByUrl.set(item.sourceUrl, item);
-      }
-    }
-
-    const latestNews = [...newsByUrl.values()].slice(0, maxItems);
-    this.logger.log(`Fetched ${latestNews.length} Google News RSS items`);
-
-    return latestNews;
-  }
-
-  private async fetchGoogleNewsQuery(query: string): Promise<RawNewsItem[]> {
-    const response = await firstValueFrom(
-      this.httpService.get<string>(this.buildGoogleNewsRssUrl(query), {
-        proxy: false,
-        responseType: 'text',
-      }),
-    );
-    const parsed = this.xmlParser.parse(response.data) as GoogleNewsRss;
-    const rssItems = parsed.rss?.channel?.item ?? [];
-    const items = Array.isArray(rssItems) ? rssItems : [rssItems];
-
-    return items
-      .map((item) => this.toRawNewsItem(item))
-      .filter((item): item is RawNewsItem => Boolean(item));
-  }
-
-  private buildGoogleNewsRssUrl(query: string): string {
-    const params = new URLSearchParams({
-      q: query,
-      hl: 'id',
-      gl: 'ID',
-      ceid: 'ID:id',
-    });
-
-    return `https://news.google.com/rss/search?${params.toString()}`;
-  }
-
-  private getGoogleNewsQueries(): string[] {
-    const configuredQueries = process.env.GOOGLE_NEWS_QUERIES;
-
-    if (!configuredQueries) {
-      return ['berita terkini Indonesia'];
-    }
-
-    return configuredQueries
-      .split(',')
-      .map((query) => query.trim())
-      .filter(Boolean);
-  }
-
-  private toRawNewsItem(item: GoogleNewsRssItem): RawNewsItem | null {
-    if (!item.title || !item.link) {
-      return null;
-    }
-
-    return {
-      title: this.stripHtml(item.title),
-      description: this.stripHtml(item.description ?? item.title),
-      sourceUrl: item.link,
-    };
-  }
-
-  private stripHtml(value: string): string {
-    return value
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/\s+/g, ' ')
-      .trim();
   }
 }

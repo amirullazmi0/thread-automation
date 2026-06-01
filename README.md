@@ -23,8 +23,9 @@
 
 ## Description
 
-Threads automation service that scans Indonesian news topics, generates a
-caption, and posts it to Threads.
+Threads automation service that scans Indonesian news topics, resolves the
+original article URL, generates a caption, downloads the article image when
+available, and posts it to Threads.
 
 ## Project setup
 
@@ -57,13 +58,26 @@ MANUAL_TRIGGER_TOKEN="local-manual-token"
 DATABASE_URL="postgresql://postgres:<password>@<host>:5432/db_thread_automation?schema=public&sslmode=disable"
 THREADS_EMAIL=""
 THREADS_PASSWORD=""
+THREADS_LOGIN_PROVIDER="threads"
+THREADS_INSTAGRAM_USERNAME=""
+THREADS_INSTAGRAM_PASSWORD=""
+THREADS_BROWSER_CHANNEL=""
+THREADS_USER_DATA_DIR=""
+THREADS_IMAGE_PATH=""
+THREADS_MAX_CAPTION_CHARS="900"
 THREADS_HEADLESS="true"
 THREADS_MANUAL_LOGIN="false"
+THREADS_AUTO_SCHEDULE="false"
+THREADS_SCHEDULE_MAX_POSTS="1"
 NEWS_SOURCE_URL=""
 GOOGLE_NEWS_QUERIES="berita terkini Indonesia,politik Indonesia,ekonomi Indonesia,teknologi Indonesia,cuaca ekstrem Indonesia,gempa Indonesia,viral Indonesia"
 GOOGLE_NEWS_MAX_ITEMS="20"
-GEMINI_API_KEY=""
-GEMINI_MODEL="gemini-2.0-flash"
+GOOGLE_NEWS_ALLOWED_SOURCES=""
+GOOGLE_NEWS_EXCLUDED_TERMS=""
+OPENAI_API_KEY=""
+OPENAI_MODEL="gpt-4.1-nano"
+OPENAI_MAX_OUTPUT_TOKENS="220"
+OPENAI_DAILY_CAPTION_LIMIT="30"
 ```
 
 ## Manual Threads Post
@@ -104,14 +118,91 @@ Complete the login in the opened browser using any supported Threads flow,
 including Instagram or Meta/Facebook verification. The app saves the session to
 `threads-session.json`, so later runs can use headless mode again.
 
+If the Threads account signs in through Instagram, set:
+
+```bash
+THREADS_LOGIN_PROVIDER="instagram"
+THREADS_INSTAGRAM_USERNAME="<instagram username/email>"
+THREADS_INSTAGRAM_PASSWORD="<instagram password>"
+```
+
+If `THREADS_INSTAGRAM_USERNAME` or `THREADS_INSTAGRAM_PASSWORD` is empty, the
+bot falls back to `THREADS_EMAIL` and `THREADS_PASSWORD`. Instagram often asks
+for verification on new machines, so the first run is usually more reliable with
+`THREADS_HEADLESS=false` and `THREADS_MANUAL_LOGIN=true`; after the session file
+is saved, switch back to headless mode.
+
+Set `THREADS_BROWSER_CHANNEL="msedge"` to use Microsoft Edge, or
+`THREADS_BROWSER_CHANNEL="chrome"` to use an installed Google Chrome. Leave it
+empty to use Playwright's bundled Chromium.
+
+Set `THREADS_USER_DATA_DIR=".playwright/edge-profile"` to keep a persistent
+browser profile for the bot. Login once in that bot-opened browser, and later
+runs can reuse the same browser cookies.
+
+Set `THREADS_IMAGE_PATH="assets/post.jpg"` to attach a local image to every
+post. `THREADS_MAX_CAPTION_CHARS` defaults to `900`, which gives the caption
+room to add context while still staying readable as one main post.
+
+For Google News RSS items, the bot tries to resolve the original article URL,
+adds the full URL as `Sumber: ...`, and downloads the article `og:image` or
+`twitter:image` for upload to Threads. If the source blocks image download, the
+post continues without an image.
+
 ## Automatic Schedule
 
-The bot also runs automatically every hour through `@nestjs/schedule`.
+The hourly schedule is disabled unless `THREADS_AUTO_SCHEDULE="true"`.
+`THREADS_SCHEDULE_MAX_POSTS` limits how many posts one scheduled scan can
+publish.
+
+Use `GOOGLE_NEWS_ALLOWED_SOURCES` and `GOOGLE_NEWS_EXCLUDED_TERMS` to keep the
+feed aligned with the account's positioning, for example national/Jakarta
+coverage instead of regional outlets.
 
 ## Docker VPS Deployment
 
 The Docker setup uses the official Playwright image, so Chromium and the Linux
 browser dependencies are already available.
+
+This project also supports the same CapRover flow as `solana-automation`:
+
+```bash
+yarn deploy:vps
+```
+
+`captain-definition` points CapRover to `./Dockerfile`. On startup, the
+container runs `npx prisma db push` and then `yarn start:prod`.
+
+Required CapRover app env vars:
+
+```text
+DATABASE_URL=postgresql://...
+PORT=3002
+MANUAL_TRIGGER_TOKEN=...
+THREADS_HEADLESS=true
+THREADS_MANUAL_LOGIN=false
+THREADS_SESSION_PATH=/app/data/threads-session.json
+THREADS_LOGIN_PROVIDER=instagram
+THREADS_INSTAGRAM_USERNAME=...
+THREADS_INSTAGRAM_PASSWORD=...
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-4.1-nano
+OPENAI_MAX_OUTPUT_TOKENS=220
+OPENAI_DAILY_CAPTION_LIMIT=30
+```
+
+Add the other news variables from `.env.example` as needed.
+
+For the cheapest GPT captions, use:
+
+```text
+OPENAI_MODEL=gpt-4.1-nano
+OPENAI_MAX_OUTPUT_TOKENS=220
+OPENAI_DAILY_CAPTION_LIMIT=30
+```
+
+If the daily OpenAI limit is reached or the API fails, the bot automatically
+uses the local fallback caption.
 
 Build and run on the VPS:
 
@@ -159,6 +250,12 @@ THREADS_HEADLESS=false THREADS_MANUAL_LOGIN=true docker compose up
 Headless servers without a visible browser session cannot complete Meta/Facebook
 login challenges reliably.
 
+### CapRover Persistent Data
+
+Create a persistent directory or volume for `/app/data` in CapRover if you want
+the saved Threads session to survive redeploys. Put `threads-session.json` there
+as `/app/data/threads-session.json`.
+
 ## Run tests
 
 ```bash
@@ -171,19 +268,6 @@ $ yarn run test:e2e
 # test coverage
 $ yarn run test:cov
 ```
-
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
-
-```bash
-$ yarn install -g @nestjs/mau
-$ mau deploy
-```
-
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
 
 ## Resources
 

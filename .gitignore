@@ -44,6 +44,7 @@ lerna-debug.log*
 
 # Browser automation session state
 threads-session.json
+.playwright/
 
 # temp directory
 .temp
