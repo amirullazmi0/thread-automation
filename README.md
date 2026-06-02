@@ -1,95 +1,63 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Thread Automation
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Automation service for the `turtle.ids` Threads account. The bot scans
+fresh entertainment and viral news, resolves the original publisher URL,
+generates an engagement-oriented caption with OpenAI, attaches the article
+image when available, and posts it to Threads through Playwright.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+The current positioning is gossip, entertainment, celebrity drama, and viral
+timeline topics. Captions are designed to invite comments with debate, hot-take,
+dilemma, or relatable-question angles.
 
-## Description
+## Features
 
-Threads automation service that scans Indonesian news topics, resolves the
-original article URL, generates a caption, downloads the article image when
-available, and posts it to Threads.
+- Google News RSS scanning by category.
+- Optional custom JSON/RSS news source.
+- Freshness filter to avoid stale topics.
+- Publisher URL resolution from Google News wrapper links.
+- Article image extraction from Open Graph and Twitter metadata.
+- OpenAI caption generation with local fallback.
+- Duplicate/update detection with Prisma.
+- Manual trigger endpoint with optional token auth.
+- Background manual runs and scheduled posting.
+- Threads login/session reuse with Playwright.
+- Docker and CapRover deployment support.
 
-## Project setup
+## Stack
 
-```bash
-$ yarn install
-```
+- NestJS
+- Prisma
+- PostgreSQL
+- Playwright
+- OpenAI Responses API
+- Google News RSS
+- Docker
 
-## Compile and run the project
+## Setup
 
-```bash
-# development
-$ yarn run start
-
-# watch mode
-$ yarn run start:dev
-
-# production mode
-$ yarn run start:prod
-```
-
-By default the app uses `PORT=3002` from `.env`.
-
-## Environment
-
-Copy `.env.example` to `.env`, then fill in the credentials and API keys.
+Install dependencies:
 
 ```bash
-PORT="3002"
-MANUAL_TRIGGER_TOKEN="local-manual-token"
-DATABASE_URL="postgresql://postgres:<password>@<host>:5432/db_thread_automation?schema=public&sslmode=disable"
-THREADS_EMAIL=""
-THREADS_PASSWORD=""
-THREADS_LOGIN_PROVIDER="threads"
-THREADS_INSTAGRAM_USERNAME=""
-THREADS_INSTAGRAM_PASSWORD=""
-THREADS_BROWSER_CHANNEL=""
-THREADS_USER_DATA_DIR=""
-THREADS_IMAGE_PATH=""
-THREADS_MAX_CAPTION_CHARS="900"
-THREADS_HEADLESS="true"
-THREADS_MANUAL_LOGIN="false"
-THREADS_AUTO_SCHEDULE="false"
-THREADS_SCHEDULE_MAX_POSTS="1"
-THREADS_CATEGORY_ROTATION="NATIONAL,INTERNATIONAL,SPORT,EVENT,ZODIAC,ROMANCE,COMEDY,OTHER"
-NEWS_SOURCE_URL=""
-GOOGLE_NEWS_QUERIES="berita terkini Indonesia,politik Indonesia,ekonomi Indonesia,teknologi Indonesia,cuaca ekstrem Indonesia,gempa Indonesia,viral Indonesia"
-GOOGLE_NEWS_NATIONAL_QUERIES="berita nasional Indonesia terkini"
-GOOGLE_NEWS_INTERNATIONAL_QUERIES="berita internasional terkini dunia"
-GOOGLE_NEWS_SPORT_QUERIES="berita olahraga Indonesia sepak bola badminton"
-GOOGLE_NEWS_EVENT_QUERIES="event konser festival pameran Indonesia terbaru"
-GOOGLE_NEWS_ZODIAC_QUERIES="zodiak hari ini ramalan bintang"
-GOOGLE_NEWS_ROMANCE_QUERIES="relationship asmara percintaan tips hubungan"
-GOOGLE_NEWS_COMEDY_QUERIES="komedi viral lucu hiburan Indonesia"
-GOOGLE_NEWS_OTHER_QUERIES="berita viral Indonesia terkini"
-GOOGLE_NEWS_MAX_ITEMS="20"
-GOOGLE_NEWS_ALLOWED_SOURCES=""
-GOOGLE_NEWS_EXCLUDED_TERMS=""
-OPENAI_API_KEY=""
-OPENAI_MODEL="gpt-4.1-nano"
-OPENAI_MAX_OUTPUT_TOKENS="220"
-OPENAI_DAILY_CAPTION_LIMIT="30"
+yarn install
 ```
 
-## Manual Threads Post
+Create `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Generate Prisma client:
+
+```bash
+npx prisma generate
+```
+
+Run database migration/sync for local development:
+
+```bash
+npx prisma db push
+```
 
 Start the app:
 
@@ -97,7 +65,143 @@ Start the app:
 yarn start
 ```
 
-Trigger one manual post:
+By default the app listens on `PORT=3002`.
+
+## Environment
+
+Core app variables:
+
+```text
+PORT=3002
+DATABASE_URL=postgresql://...
+MANUAL_TRIGGER_TOKEN=
+```
+
+Threads login:
+
+```text
+THREADS_EMAIL=
+THREADS_PASSWORD=
+THREADS_LOGIN_PROVIDER=threads
+THREADS_INSTAGRAM_USERNAME=
+THREADS_INSTAGRAM_PASSWORD=
+THREADS_HEADLESS=true
+THREADS_MANUAL_LOGIN=false
+THREADS_BROWSER_CHANNEL=
+THREADS_USER_DATA_DIR=
+THREADS_SESSION_PATH=
+```
+
+Posting behavior:
+
+```text
+THREADS_AUTO_SCHEDULE=false
+THREADS_SCHEDULE_MAX_POSTS=1
+THREADS_SCAN_CANDIDATES_PER_CATEGORY=3
+THREADS_CATEGORY_ROTATION=OTHER,INTERNATIONAL,COMEDY,ROMANCE,EVENT
+THREADS_MAX_CAPTION_CHARS=900
+THREADS_IMAGE_PATH=
+```
+
+News source:
+
+```text
+NEWS_SOURCE_URL=
+GOOGLE_NEWS_MAX_ITEMS=20
+GOOGLE_NEWS_ALLOWED_SOURCES=
+GOOGLE_NEWS_EXCLUDED_TERMS=
+THREADS_MAX_NEWS_AGE_DAYS=2
+```
+
+Google News category queries:
+
+```text
+GOOGLE_NEWS_QUERIES=gosip artis Indonesia terbaru,celebrity gossip terbaru,berita selebriti viral Indonesia,drama seleb internasional
+GOOGLE_NEWS_NATIONAL_QUERIES=gosip artis Indonesia terbaru
+GOOGLE_NEWS_INTERNATIONAL_QUERIES=celebrity gossip terbaru dunia,Hollywood celebrity gossip terbaru,K-pop idol scandal news,drama selebriti internasional terbaru
+GOOGLE_NEWS_SPORT_QUERIES=gosip atlet selebriti olahraga viral
+GOOGLE_NEWS_EVENT_QUERIES=gosip konser festival artis Indonesia terbaru
+GOOGLE_NEWS_ZODIAC_QUERIES=zodiak selebriti ramalan bintang viral
+GOOGLE_NEWS_ROMANCE_QUERIES=gosip artis pacaran nikah cerai putus terbaru
+GOOGLE_NEWS_COMEDY_QUERIES=drama seleb viral lucu hiburan Indonesia
+GOOGLE_NEWS_OTHER_QUERIES=gosip artis viral Indonesia terbaru,celebrity gossip viral
+```
+
+OpenAI:
+
+```text
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-nano
+OPENAI_MAX_OUTPUT_TOKENS=220
+OPENAI_DAILY_CAPTION_LIMIT=30
+OPENAI_TIMEOUT_MS=20000
+```
+
+## Freshness Rules
+
+The bot should not post stale entertainment topics. By default,
+`THREADS_MAX_NEWS_AGE_DAYS=2`, so news older than two days is skipped.
+
+Google News searches also get a `when:2d` freshness operator automatically
+unless the query already contains a `when:` operator.
+
+For custom JSON/RSS sources, include a publish date. Items without a usable
+date are skipped when the max-age filter is enabled.
+
+Supported date fields:
+
+- Google News RSS: `pubDate`
+- RSS/Atom feeds: `pubDate`, `published`, `updated`, `dc:date`, `isoDate`
+- Custom JSON: `publishedAt`
+- Publisher HTML metadata: `article:published_time`, `og:published_time`,
+  `pubdate`, `publishdate`, `timestamp`, `datePublished`
+
+Set `THREADS_MAX_NEWS_AGE_DAYS=0` only if you want to disable this filter.
+
+## Caption Strategy
+
+Captions are generated in Indonesian with a gossip/viral tone. The AI prompt
+uses one of these engagement modes:
+
+- `debate`: makes readers choose a side.
+- `hot_take`: gives a safe but sharper opinion.
+- `dilemma`: presents two reasonable sides.
+- `relatable_question`: connects the topic to reader experience.
+
+The bot still enforces safety rules:
+
+- Do not invent facts outside the source title and description.
+- Do not defame, accuse, or judge people.
+- Do not include URLs inside the AI-generated body.
+- End the main caption with a question that invites comments.
+- Keep the final output within the Threads caption limit.
+
+If OpenAI is unavailable, over the daily limit, or times out, the bot uses a
+local fallback caption and still adds a comment-oriented question.
+
+## Manual Posting
+
+Start the app:
+
+```bash
+yarn start
+```
+
+Trigger one post and wait for completion:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://localhost:3002/threads-bot/run-once?maxPosts=1&wait=true" `
+  -Headers @{ "x-manual-trigger-token" = "local-manual-token" }
+```
+
+Response:
+
+```json
+{ "posted": 1 }
+```
+
+Trigger in the background:
 
 ```powershell
 Invoke-RestMethod -Method Post `
@@ -105,17 +209,36 @@ Invoke-RestMethod -Method Post `
   -Headers @{ "x-manual-trigger-token" = "local-manual-token" }
 ```
 
-The endpoint returns:
+Response:
 
 ```json
-{ "posted": 1 }
+{ "started": true, "maxPosts": 1 }
 ```
 
-`maxPosts` defaults to `1` and accepts values from `1` to `10`. If
-`MANUAL_TRIGGER_TOKEN` is empty, the manual endpoint does not require the
-`x-manual-trigger-token` header.
+`maxPosts` accepts values from `1` to `10`. If `MANUAL_TRIGGER_TOKEN` is empty,
+the endpoint does not require the `x-manual-trigger-token` header.
 
-If Threads asks for verification, run once with a visible browser:
+## Scheduling
+
+The scheduler checks every 30 minutes, but it only posts when:
+
+```text
+THREADS_AUTO_SCHEDULE=true
+```
+
+`THREADS_SCHEDULE_MAX_POSTS` controls how many posts a scheduled scan can
+publish. The category rotation starts from the category after the last
+successful post, so the feed does not get stuck on one topic type.
+
+Default category rotation:
+
+```text
+OTHER,INTERNATIONAL,COMEDY,ROMANCE,EVENT
+```
+
+## Threads Login
+
+For the first login, visible browser mode is usually more reliable:
 
 ```powershell
 $env:THREADS_HEADLESS="false"
@@ -123,78 +246,106 @@ $env:THREADS_MANUAL_LOGIN="true"
 yarn start
 ```
 
-Complete the login in the opened browser using any supported Threads flow,
-including Instagram or Meta/Facebook verification. The app saves the session to
-`threads-session.json`, so later runs can use headless mode again.
+Complete the login in the opened browser. The app stores the session so later
+runs can use headless mode.
 
-If the Threads account signs in through Instagram, set:
+Use direct Threads login:
 
-```bash
-THREADS_LOGIN_PROVIDER="instagram"
-THREADS_INSTAGRAM_USERNAME="<instagram username/email>"
-THREADS_INSTAGRAM_PASSWORD="<instagram password>"
+```text
+THREADS_LOGIN_PROVIDER=threads
+THREADS_EMAIL=...
+THREADS_PASSWORD=...
 ```
 
-If `THREADS_INSTAGRAM_USERNAME` or `THREADS_INSTAGRAM_PASSWORD` is empty, the
-bot falls back to `THREADS_EMAIL` and `THREADS_PASSWORD`. Instagram often asks
-for verification on new machines, so the first run is usually more reliable with
-`THREADS_HEADLESS=false` and `THREADS_MANUAL_LOGIN=true`; after the session file
-is saved, switch back to headless mode.
+Use Instagram login:
 
-Set `THREADS_BROWSER_CHANNEL="msedge"` to use Microsoft Edge, or
-`THREADS_BROWSER_CHANNEL="chrome"` to use an installed Google Chrome. Leave it
-empty to use Playwright's bundled Chromium.
+```text
+THREADS_LOGIN_PROVIDER=instagram
+THREADS_INSTAGRAM_USERNAME=...
+THREADS_INSTAGRAM_PASSWORD=...
+```
 
-Set `THREADS_USER_DATA_DIR=".playwright/edge-profile"` to keep a persistent
-browser profile for the bot. Login once in that bot-opened browser, and later
-runs can reuse the same browser cookies.
+If Instagram credentials are empty, the bot falls back to `THREADS_EMAIL` and
+`THREADS_PASSWORD`.
 
-Set `THREADS_IMAGE_PATH="assets/post.jpg"` to attach a local image to every
-post. `THREADS_MAX_CAPTION_CHARS` defaults to `900`, which gives the caption
-room to add context while still staying readable as one main post.
+Browser options:
 
-For Google News RSS items, the bot tries to resolve the original article URL,
-adds the full URL as `Sumber: ...`, and downloads the article `og:image` or
-`twitter:image` for upload to Threads. If the source blocks image download, the
-post continues without an image.
+```text
+THREADS_BROWSER_CHANNEL=msedge
+THREADS_USER_DATA_DIR=.playwright/edge-profile
+THREADS_SESSION_PATH=data/threads-session.json
+```
 
-## Automatic Schedule
+## Images
 
-The hourly schedule is disabled unless `THREADS_AUTO_SCHEDULE="true"`.
-`THREADS_SCHEDULE_MAX_POSTS` limits how many posts one scheduled scan can
-publish.
+For Google News RSS items, the bot resolves the original publisher URL and
+tries to download the article image from `og:image` or `twitter:image`.
 
-`THREADS_CATEGORY_ROTATION` controls the posting theme order. By default the bot
-cycles through `NATIONAL`, `INTERNATIONAL`, `SPORT`, `EVENT`, `ZODIAC`,
-`ROMANCE`, `COMEDY`, and `OTHER`; after one category posts successfully, the
-next scan starts from the following category. If a category has no new article,
-the bot tries the next category until one full rotation has been checked.
+If image download fails, the post continues without an attachment.
 
-Each category can use its own Google News search terms through
-`GOOGLE_NEWS_<CATEGORY>_QUERIES`, for example
-`GOOGLE_NEWS_SPORT_QUERIES="sepak bola Indonesia,badminton Indonesia"`.
-`GOOGLE_NEWS_QUERIES` remains the fallback for `NATIONAL` only, so old config
-does not make every category use the same national query.
+To attach the same local image to every post:
 
-Use `GOOGLE_NEWS_ALLOWED_SOURCES` and `GOOGLE_NEWS_EXCLUDED_TERMS` to keep the
-feed aligned with the account's positioning, for example national/Jakarta
-coverage instead of regional outlets.
+```text
+THREADS_IMAGE_PATH=assets/post.jpg
+```
 
-## Docker VPS Deployment
+## Custom News Source
 
-The Docker setup uses the official Playwright image, so Chromium and the Linux
-browser dependencies are already available.
+Set `NEWS_SOURCE_URL` to use your own JSON or RSS feed instead of Google News.
 
-This project also supports the same CapRover flow as `solana-automation`:
+JSON array example:
+
+```json
+[
+  {
+    "title": "Contoh headline viral",
+    "description": "Ringkasan singkat sumber berita.",
+    "sourceUrl": "https://example.com/article",
+    "imageUrl": "https://example.com/image.jpg",
+    "category": "OTHER",
+    "publishedAt": "2026-06-02T08:00:00.000Z"
+  }
+]
+```
+
+Valid categories:
+
+```text
+NATIONAL, INTERNATIONAL, SPORT, EVENT, ZODIAC, ROMANCE, COMEDY, OTHER
+```
+
+## Docker
+
+Build and run:
+
+```bash
+docker compose up -d --build
+```
+
+View logs:
+
+```bash
+docker compose logs -f thread-automation
+```
+
+The Docker setup uses the official Playwright image, so Chromium and required
+Linux browser dependencies are already available.
+
+## CapRover
+
+Deploy:
 
 ```bash
 yarn deploy:vps
 ```
 
-`captain-definition` points CapRover to `./Dockerfile`. On startup, the
-container runs `npx prisma db push` and then `yarn start:prod`.
+`captain-definition` points to `./Dockerfile`. On startup, the container runs:
 
-Required CapRover app env vars:
+```bash
+npx prisma db push && yarn start:prod
+```
+
+Recommended production env:
 
 ```text
 DATABASE_URL=postgresql://...
@@ -210,109 +361,42 @@ OPENAI_API_KEY=...
 OPENAI_MODEL=gpt-4.1-nano
 OPENAI_MAX_OUTPUT_TOKENS=220
 OPENAI_DAILY_CAPTION_LIMIT=30
+THREADS_MAX_NEWS_AGE_DAYS=2
 ```
 
-Add the other news variables from `.env.example` as needed.
-
-For the cheapest GPT captions, use:
+Create a persistent directory or volume for `/app/data` if you want the saved
+Threads session to survive redeploys. Put `threads-session.json` there as:
 
 ```text
-OPENAI_MODEL=gpt-4.1-nano
-OPENAI_MAX_OUTPUT_TOKENS=220
-OPENAI_DAILY_CAPTION_LIMIT=30
+/app/data/threads-session.json
 ```
 
-If the daily OpenAI limit is reached or the API fails, the bot automatically
-uses the local fallback caption.
+## Testing
 
-Build and run on the VPS:
+Run all unit tests:
 
 ```bash
-docker compose up -d --build
+yarn test
 ```
 
-Check logs:
+Run TypeScript checks:
 
 ```bash
-docker compose logs -f thread-automation
+yarn tsc --noEmit
 ```
 
-Trigger one manual post from the VPS:
+Run e2e tests:
 
 ```bash
-curl -X POST \
-  "http://localhost:3002/threads-bot/run-once?maxPosts=1" \
-  -H "x-manual-trigger-token: local-manual-token"
+yarn test:e2e
 ```
 
-For production, keep `THREADS_HEADLESS=true` and
-`THREADS_MANUAL_LOGIN=false`.
+## Notes
 
-### Threads Session
-
-The compose file mounts:
-
-```text
-./data:/app/data
-```
-
-Generate `threads-session.json` once on a machine where you can complete the
-Threads login in a visible browser, then place that file at
-`data/threads-session.json` on the VPS. After that, the container can reuse the
-saved session in headless mode.
-
-If you need to do the first login directly on a VPS, use a remote desktop/X11
-setup and run with:
-
-```bash
-THREADS_HEADLESS=false THREADS_MANUAL_LOGIN=true docker compose up
-```
-
-Headless servers without a visible browser session cannot complete Meta/Facebook
-login challenges reliably.
-
-### CapRover Persistent Data
-
-Create a persistent directory or volume for `/app/data` in CapRover if you want
-the saved Threads session to survive redeploys. Put `threads-session.json` there
-as `/app/data/threads-session.json`.
-
-## Run tests
-
-```bash
-# unit tests
-$ yarn run test
-
-# e2e tests
-$ yarn run test:e2e
-
-# test coverage
-$ yarn run test:cov
-```
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+- Keep `THREADS_MAX_NEWS_AGE_DAYS=2` for viral/gossip content so posts do not
+  feel stale.
+- Use `GOOGLE_NEWS_EXCLUDED_TERMS` to block topics that do not fit the account.
+- Use `GOOGLE_NEWS_ALLOWED_SOURCES` if you want to restrict the bot to trusted
+  publishers only.
+- Auto-reply is intentionally not implemented yet. The current focus is better
+  post quality, fresher sources, and safer caption prompts.
