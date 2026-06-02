@@ -7,13 +7,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum NewsCategory {
+  NATIONAL
+  INTERNATIONAL
+  SPORT
+  EVENT
+  ZODIAC
+  ROMANCE
+  COMEDY
+  OTHER
+}
+
 model NewsPost {
   id          String   @id @default(uuid())
   title       String
   sourceUrl   String   @unique
   contentHash String
+  category    NewsCategory @default(NATIONAL)
   isUpdate    Boolean  @default(false)
   postedAt    DateTime @default(now())
 
   @@index([contentHash])
+  @@index([category, postedAt])
 }

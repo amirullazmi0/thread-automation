@@ -1,8 +1,22 @@
+export const NEWS_CATEGORIES = [
+  'NATIONAL',
+  'INTERNATIONAL',
+  'SPORT',
+  'EVENT',
+  'ZODIAC',
+  'ROMANCE',
+  'COMEDY',
+  'OTHER',
+] as const;
+
+export type NewsCategory = (typeof NEWS_CATEGORIES)[number];
+
 export interface RawNewsItem {
   title: string;
   description: string;
   sourceUrl: string;
   imageUrl?: string | null;
+  category?: NewsCategory | null;
 }
 
 export interface CaptionNewsItem {

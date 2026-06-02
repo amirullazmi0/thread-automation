@@ -69,8 +69,17 @@ THREADS_HEADLESS="true"
 THREADS_MANUAL_LOGIN="false"
 THREADS_AUTO_SCHEDULE="false"
 THREADS_SCHEDULE_MAX_POSTS="1"
+THREADS_CATEGORY_ROTATION="NATIONAL,INTERNATIONAL,SPORT,EVENT,ZODIAC,ROMANCE,COMEDY,OTHER"
 NEWS_SOURCE_URL=""
 GOOGLE_NEWS_QUERIES="berita terkini Indonesia,politik Indonesia,ekonomi Indonesia,teknologi Indonesia,cuaca ekstrem Indonesia,gempa Indonesia,viral Indonesia"
+GOOGLE_NEWS_NATIONAL_QUERIES="berita nasional Indonesia terkini"
+GOOGLE_NEWS_INTERNATIONAL_QUERIES="berita internasional terkini dunia"
+GOOGLE_NEWS_SPORT_QUERIES="berita olahraga Indonesia sepak bola badminton"
+GOOGLE_NEWS_EVENT_QUERIES="event konser festival pameran Indonesia terbaru"
+GOOGLE_NEWS_ZODIAC_QUERIES="zodiak hari ini ramalan bintang"
+GOOGLE_NEWS_ROMANCE_QUERIES="relationship asmara percintaan tips hubungan"
+GOOGLE_NEWS_COMEDY_QUERIES="komedi viral lucu hiburan Indonesia"
+GOOGLE_NEWS_OTHER_QUERIES="berita viral Indonesia terkini"
 GOOGLE_NEWS_MAX_ITEMS="20"
 GOOGLE_NEWS_ALLOWED_SOURCES=""
 GOOGLE_NEWS_EXCLUDED_TERMS=""
@@ -154,6 +163,18 @@ post continues without an image.
 The hourly schedule is disabled unless `THREADS_AUTO_SCHEDULE="true"`.
 `THREADS_SCHEDULE_MAX_POSTS` limits how many posts one scheduled scan can
 publish.
+
+`THREADS_CATEGORY_ROTATION` controls the posting theme order. By default the bot
+cycles through `NATIONAL`, `INTERNATIONAL`, `SPORT`, `EVENT`, `ZODIAC`,
+`ROMANCE`, `COMEDY`, and `OTHER`; after one category posts successfully, the
+next scan starts from the following category. If a category has no new article,
+the bot tries the next category until one full rotation has been checked.
+
+Each category can use its own Google News search terms through
+`GOOGLE_NEWS_<CATEGORY>_QUERIES`, for example
+`GOOGLE_NEWS_SPORT_QUERIES="sepak bola Indonesia,badminton Indonesia"`.
+`GOOGLE_NEWS_QUERIES` remains the fallback for `NATIONAL` only, so old config
+does not make every category use the same national query.
 
 Use `GOOGLE_NEWS_ALLOWED_SOURCES` and `GOOGLE_NEWS_EXCLUDED_TERMS` to keep the
 feed aligned with the account's positioning, for example national/Jakarta

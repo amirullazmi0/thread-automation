@@ -13,6 +13,8 @@ import {
   GoogleNewsDecodeParams,
   GoogleNewsRss,
   GoogleNewsRssItem,
+  NEWS_CATEGORIES,
+  NewsCategory,
   NewsFeedDocument,
   NewsFeedItem,
   RawNewsItem,
@@ -28,7 +30,7 @@ export class ThreadsBotRepository {
   constructor(private readonly httpService: HttpService) {}
 
   // Loads news from a custom endpoint when set, otherwise falls back to Google News RSS.
-  async fetchLatestNews(): Promise<RawNewsItem[]> {
+  async fetchLatestNews(category?: NewsCategory): Promise<RawNewsItem[]> {
     const endpoint = process.env.NEWS_SOURCE_URL;
 
     if (endpoint) {
@@ -39,10 +41,10 @@ export class ThreadsBotRepository {
         }),
       );
 
-      return this.parseConfiguredNewsSource(response.data, endpoint);
+      return this.parseConfiguredNewsSource(response.data, endpoint, category);
     }
 
-    return this.fetchGoogleNewsRss();
+    return this.fetchGoogleNewsRss(category);
   }
 
   // Downloads the article image to a temporary local file for Playwright upload.
@@ -100,8 +102,10 @@ export class ThreadsBotRepository {
   }
 
   // Fetches all configured Google News queries and returns deduped resolved articles.
-  private async fetchGoogleNewsRss(): Promise<RawNewsItem[]> {
-    const queries = this.getGoogleNewsQueries();
+  private async fetchGoogleNewsRss(
+    category: NewsCategory = 'NATIONAL',
+  ): Promise<RawNewsItem[]> {
+    const queries = this.getGoogleNewsQueries(category);
     const maxItems = Number(process.env.GOOGLE_NEWS_MAX_ITEMS ?? 20);
     const newsByUrl = new Map<string, RawNewsItem>();
 
@@ -109,7 +113,10 @@ export class ThreadsBotRepository {
       const items = await this.fetchGoogleNewsQuery(query);
 
       for (const item of items) {
-        const enrichedItem = await this.enrichNewsItem(item);
+        const enrichedItem = await this.enrichNewsItem({
+          ...item,
+          category,
+        });
 
         if (this.isGoogleNewsUrl(enrichedItem.sourceUrl)) {
           this.logger.warn(
@@ -123,7 +130,9 @@ export class ThreadsBotRepository {
     }
 
     const latestNews = [...newsByUrl.values()].slice(0, maxItems);
-    this.logger.log(`Fetched ${latestNews.length} Google News RSS items`);
+    this.logger.log(
+      `Fetched ${latestNews.length} Google News RSS items for ${category}`,
+    );
 
     return latestNews;
   }
@@ -132,6 +141,7 @@ export class ThreadsBotRepository {
   private parseConfiguredNewsSource(
     payload: string,
     endpoint: string,
+    category?: NewsCategory,
   ): RawNewsItem[] {
     const trimmedPayload = payload.trim();
 
@@ -140,20 +150,24 @@ export class ThreadsBotRepository {
     }
 
     if (trimmedPayload.startsWith('<')) {
-      return this.parseRssFeed(trimmedPayload, endpoint);
+      return this.parseRssFeed(trimmedPayload, endpoint, category);
     }
 
     try {
-      const parsed = JSON.parse(trimmedPayload) as RawNewsItem[] | NewsFeedDocument;
+      const parsed = JSON.parse(trimmedPayload) as
+        | RawNewsItem[]
+        | NewsFeedDocument;
 
       if (Array.isArray(parsed)) {
         return parsed
           .map((item) => this.normalizeRawNewsItem(item))
           .filter((item): item is RawNewsItem => Boolean(item))
+          .map((item) => this.applyRequestedCategory(item, category))
+          .filter((item) => this.matchesRequestedCategory(item, category))
           .filter((item) => this.isAllowedNewsItem(item));
       }
 
-      return this.extractFeedItems(parsed, endpoint);
+      return this.extractFeedItems(parsed, endpoint, category);
     } catch {
       this.logger.warn(
         `Configured news source is neither JSON nor RSS XML: ${endpoint}`,
@@ -163,23 +177,29 @@ export class ThreadsBotRepository {
   }
 
   // Parses RSS XML from a configured endpoint into news items.
-  private parseRssFeed(payload: string, endpoint: string): RawNewsItem[] {
+  private parseRssFeed(
+    payload: string,
+    endpoint: string,
+    category?: NewsCategory,
+  ): RawNewsItem[] {
     const parsed = this.xmlParser.parse(payload) as NewsFeedDocument;
-    return this.extractFeedItems(parsed, endpoint);
+    return this.extractFeedItems(parsed, endpoint, category);
   }
 
   // Normalizes RSS or JSON feed items into the internal raw news shape.
   private extractFeedItems(
     document: NewsFeedDocument,
     endpoint: string,
+    category?: NewsCategory,
   ): RawNewsItem[] {
     const sourceHint = this.getSourceNameFromEndpoint(endpoint);
     const rssItems = document.rss?.channel?.item ?? document.feed?.entry ?? [];
     const items = Array.isArray(rssItems) ? rssItems : [rssItems];
 
     return items
-      .map((item) => this.toRawNewsItemFromFeed(item, endpoint))
+      .map((item) => this.toRawNewsItemFromFeed(item, endpoint, category))
       .filter((item): item is RawNewsItem => Boolean(item))
+      .filter((item) => this.matchesRequestedCategory(item, category))
       .filter((item) => this.isAllowedNewsItem(item, sourceHint));
   }
 
@@ -214,17 +234,35 @@ export class ThreadsBotRepository {
   }
 
   // Reads comma-separated Google News queries from env.
-  private getGoogleNewsQueries(): string[] {
-    const configuredQueries = process.env.GOOGLE_NEWS_QUERIES;
+  private getGoogleNewsQueries(category: NewsCategory): string[] {
+    const categoryQueries = process.env[`GOOGLE_NEWS_${category}_QUERIES`];
+    const configuredQueries =
+      categoryQueries ??
+      (category === 'NATIONAL' ? process.env.GOOGLE_NEWS_QUERIES : undefined);
 
     if (!configuredQueries) {
-      return ['berita terkini Indonesia'];
+      return this.getDefaultGoogleNewsQueries(category);
     }
 
     return configuredQueries
       .split(',')
       .map((query) => query.trim())
       .filter(Boolean);
+  }
+
+  private getDefaultGoogleNewsQueries(category: NewsCategory): string[] {
+    const queriesByCategory: Record<NewsCategory, string[]> = {
+      NATIONAL: ['berita nasional Indonesia terkini'],
+      INTERNATIONAL: ['berita internasional terkini dunia'],
+      SPORT: ['berita olahraga Indonesia sepak bola badminton'],
+      EVENT: ['event konser festival pameran Indonesia terbaru'],
+      ZODIAC: ['zodiak hari ini ramalan bintang'],
+      ROMANCE: ['relationship asmara percintaan tips hubungan'],
+      COMEDY: ['komedi viral lucu hiburan Indonesia'],
+      OTHER: ['berita viral Indonesia terkini'],
+    };
+
+    return queriesByCategory[category];
   }
 
   // Converts one RSS item into the internal news item shape.
@@ -238,6 +276,7 @@ export class ThreadsBotRepository {
       description: this.stripHtml(item.description ?? item.title),
       sourceUrl: item.link,
       imageUrl: null,
+      category: null,
     };
   }
 
@@ -245,6 +284,7 @@ export class ThreadsBotRepository {
   private toRawNewsItemFromFeed(
     item: NewsFeedItem,
     baseUrl: string,
+    category?: NewsCategory,
   ): RawNewsItem | null {
     const title = this.stripHtml(item.title ?? '');
     const sourceUrl = this.extractFeedItemUrl(item, baseUrl);
@@ -260,6 +300,7 @@ export class ThreadsBotRepository {
       ),
       sourceUrl,
       imageUrl: this.extractFeedItemImageUrl(item, baseUrl),
+      category,
     };
   }
 
@@ -270,7 +311,9 @@ export class ThreadsBotRepository {
     try {
       articleUrl = await this.resolveArticleUrl(item.sourceUrl);
     } catch (error) {
-      this.logger.warn(`Failed to resolve news URL; using RSS link: ${item.sourceUrl}`);
+      this.logger.warn(
+        `Failed to resolve news URL; using RSS link: ${item.sourceUrl}`,
+      );
       return item;
     }
 
@@ -283,7 +326,9 @@ export class ThreadsBotRepository {
         imageUrl: articleMetadata.imageUrl,
       };
     } catch (error) {
-      this.logger.warn(`Failed to fetch article metadata; using article URL without image: ${articleUrl}`);
+      this.logger.warn(
+        `Failed to fetch article metadata; using article URL without image: ${articleUrl}`,
+      );
       return {
         ...item,
         sourceUrl: articleUrl,
@@ -415,15 +460,18 @@ export class ThreadsBotRepository {
     }
 
     const response = await firstValueFrom(
-      this.httpService.get<string>(`https://news.google.com/articles/${articleId}`, {
-        proxy: false,
-        responseType: 'text',
-        timeout: 15_000,
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      this.httpService.get<string>(
+        `https://news.google.com/articles/${articleId}`,
+        {
+          proxy: false,
+          responseType: 'text',
+          timeout: 15_000,
+          headers: {
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
         },
-      }),
+      ),
     );
 
     const signature = this.extractHtmlAttribute(response.data, 'data-n-a-sg');
@@ -514,7 +562,10 @@ export class ThreadsBotRepository {
   }
 
   // Extracts a usable link from RSS or Atom feed items.
-  private extractFeedItemUrl(item: NewsFeedItem, baseUrl: string): string | null {
+  private extractFeedItemUrl(
+    item: NewsFeedItem,
+    baseUrl: string,
+  ): string | null {
     if (typeof item.link === 'string') {
       return this.toAbsoluteUrl(item.link, baseUrl);
     }
@@ -550,7 +601,43 @@ export class ThreadsBotRepository {
       description: this.stripHtml(item.description ?? item.title),
       sourceUrl: item.sourceUrl,
       imageUrl: item.imageUrl ?? null,
+      category: this.normalizeCategory(item.category),
     };
+  }
+
+  private applyRequestedCategory(
+    item: RawNewsItem,
+    category?: NewsCategory,
+  ): RawNewsItem {
+    if (!category || item.category) {
+      return item;
+    }
+
+    return {
+      ...item,
+      category,
+    };
+  }
+
+  private matchesRequestedCategory(
+    item: RawNewsItem,
+    category?: NewsCategory,
+  ): boolean {
+    if (!category) {
+      return true;
+    }
+
+    return !item.category || item.category === category;
+  }
+
+  private normalizeCategory(category?: string | null): NewsCategory | null {
+    const normalizedCategory = category?.trim().toUpperCase();
+
+    if (!normalizedCategory) {
+      return null;
+    }
+
+    return NEWS_CATEGORIES.find((item) => item === normalizedCategory) ?? null;
   }
 
   // Reads a specific meta tag content value from HTML.
@@ -578,7 +665,10 @@ export class ThreadsBotRepository {
   }
 
   // Reads an HTML attribute value by name.
-  private extractHtmlAttribute(html: string, attributeName: string): string | null {
+  private extractHtmlAttribute(
+    html: string,
+    attributeName: string,
+  ): string | null {
     const pattern = new RegExp(
       `${this.escapeRegExp(attributeName)}=["']([^"']+)["']`,
       'i',

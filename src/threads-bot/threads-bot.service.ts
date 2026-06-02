@@ -3,7 +3,11 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiCaptionService } from './ai-caption.service';
-import { RawNewsItem } from './dto/threads-bot.dto';
+import {
+  NEWS_CATEGORIES,
+  NewsCategory,
+  RawNewsItem,
+} from './dto/threads-bot.dto';
 import { ThreadsBotRepository } from './threads-bot.repository';
 import { ThreadsBrowserService } from './threads-browser.service';
 
@@ -31,21 +35,8 @@ export class ThreadsBotService {
     this.logger.log('Starting hourly trends scan');
 
     try {
-      const latestNews = await this.threadsBotRepository.fetchLatestNews();
       const maxPosts = Number(process.env.THREADS_SCHEDULE_MAX_POSTS ?? 1);
-      let postedCount = 0;
-
-      for (const item of latestNews) {
-        const posted = await this.processNewsItem(item);
-
-        if (posted) {
-          postedCount += 1;
-        }
-
-        if (postedCount >= maxPosts) {
-          break;
-        }
-      }
+      await this.runPostingLoop(maxPosts);
     } catch (error) {
       this.logger.error('Hourly trends scan failed', error);
       throw error;
@@ -56,27 +47,48 @@ export class ThreadsBotService {
   async runOnce(maxPosts = 1): Promise<number> {
     this.logger.log(`Starting one-time trends scan, max posts: ${maxPosts}`);
 
-    const latestNews = await this.threadsBotRepository.fetchLatestNews();
-    let postedCount = 0;
-
-    for (const item of latestNews) {
-      const posted = await this.processNewsItem(item);
-
-      if (posted) {
-        postedCount += 1;
-      }
-
-      if (postedCount >= maxPosts) {
-        break;
-      }
-    }
+    const postedCount = await this.runPostingLoop(maxPosts);
 
     this.logger.log(`One-time trends scan finished, posted: ${postedCount}`);
     return postedCount;
   }
 
+  private async runPostingLoop(maxPosts: number): Promise<number> {
+    const categories = this.getConfiguredCategories();
+    let category = await this.getNextPostCategory(categories);
+    let postedCount = 0;
+    let emptyCategoryCount = 0;
+
+    while (postedCount < maxPosts && emptyCategoryCount < categories.length) {
+      this.logger.log(`Scanning category: ${category}`);
+      const latestNews =
+        await this.threadsBotRepository.fetchLatestNews(category);
+      let postedInCategory = false;
+
+      for (const item of latestNews) {
+        const posted = await this.processNewsItem(item, category);
+
+        if (!posted) {
+          continue;
+        }
+
+        postedCount += 1;
+        postedInCategory = true;
+        break;
+      }
+
+      emptyCategoryCount = postedInCategory ? 0 : emptyCategoryCount + 1;
+      category = this.getNextCategory(category, categories);
+    }
+
+    return postedCount;
+  }
+
   // Handles duplicate detection, caption generation, browser posting, and DB save.
-  private async processNewsItem(item: RawNewsItem): Promise<boolean> {
+  private async processNewsItem(
+    item: RawNewsItem,
+    category: NewsCategory,
+  ): Promise<boolean> {
     const contentHash = this.generateContentHash(item);
     const existingPost = await this.prisma.newsPost.findUnique({
       where: { sourceUrl: item.sourceUrl },
@@ -99,6 +111,7 @@ export class ThreadsBotService {
           title: item.title,
           sourceUrl: item.sourceUrl,
           contentHash,
+          category,
           isUpdate: false,
         },
       });
@@ -123,6 +136,7 @@ export class ThreadsBotService {
         data: {
           title: item.title,
           contentHash,
+          category,
           isUpdate: true,
           postedAt: new Date(),
         },
@@ -140,5 +154,56 @@ export class ThreadsBotService {
     return createHash('md5')
       .update(`${item.title}:${item.description}`)
       .digest('hex');
+  }
+
+  private async getNextPostCategory(
+    categories: NewsCategory[],
+  ): Promise<NewsCategory> {
+    const lastPost = await this.prisma.newsPost.findFirst({
+      orderBy: { postedAt: 'desc' },
+      select: { category: true },
+    });
+
+    if (!lastPost) {
+      return categories[0];
+    }
+
+    return this.getNextCategory(lastPost.category, categories);
+  }
+
+  private getNextCategory(
+    currentCategory: NewsCategory,
+    categories: NewsCategory[],
+  ): NewsCategory {
+    const currentIndex = categories.indexOf(currentCategory);
+    const nextIndex = currentIndex >= 0 ? currentIndex + 1 : 0;
+
+    return categories[nextIndex % categories.length];
+  }
+
+  private getConfiguredCategories(): NewsCategory[] {
+    const configuredCategories = process.env.THREADS_CATEGORY_ROTATION;
+
+    if (!configuredCategories) {
+      return [
+        'NATIONAL',
+        'INTERNATIONAL',
+        'SPORT',
+        'EVENT',
+        'ZODIAC',
+        'ROMANCE',
+        'COMEDY',
+        'OTHER',
+      ];
+    }
+
+    const categories = configuredCategories
+      .split(',')
+      .map((category) => category.trim().toUpperCase())
+      .filter((category): category is NewsCategory =>
+        NEWS_CATEGORIES.some((knownCategory) => knownCategory === category),
+      );
+
+    return categories.length > 0 ? categories : ['NATIONAL'];
   }
 }
