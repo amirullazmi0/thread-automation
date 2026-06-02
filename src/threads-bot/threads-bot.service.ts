@@ -14,6 +14,7 @@ import { ThreadsBrowserService } from './threads-browser.service';
 @Injectable()
 export class ThreadsBotService {
   private readonly logger = new Logger(ThreadsBotService.name);
+  private activeRun: Promise<number> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -45,9 +46,18 @@ export class ThreadsBotService {
 
   // Runs a manual one-shot scan and returns the number of successful posts.
   async runOnce(maxPosts = 1): Promise<number> {
+    if (this.activeRun) {
+      this.logger.warn('Trends scan already running; skipping new trigger');
+      return 0;
+    }
+
     this.logger.log(`Starting one-time trends scan, max posts: ${maxPosts}`);
 
-    const postedCount = await this.runPostingLoop(maxPosts);
+    this.activeRun = this.runPostingLoop(maxPosts).finally(() => {
+      this.activeRun = null;
+    });
+
+    const postedCount = await this.activeRun;
 
     this.logger.log(`One-time trends scan finished, posted: ${postedCount}`);
     return postedCount;
@@ -61,8 +71,10 @@ export class ThreadsBotService {
 
     while (postedCount < maxPosts && emptyCategoryCount < categories.length) {
       this.logger.log(`Scanning category: ${category}`);
-      const latestNews =
-        await this.threadsBotRepository.fetchLatestNews(category);
+      const latestNews = await this.threadsBotRepository.fetchLatestNews(
+        category,
+        this.getCandidateLimitPerCategory(maxPosts),
+      );
       let postedInCategory = false;
 
       for (const item of latestNews) {
@@ -185,16 +197,7 @@ export class ThreadsBotService {
     const configuredCategories = process.env.THREADS_CATEGORY_ROTATION;
 
     if (!configuredCategories) {
-      return [
-        'NATIONAL',
-        'INTERNATIONAL',
-        'SPORT',
-        'EVENT',
-        'ZODIAC',
-        'ROMANCE',
-        'COMEDY',
-        'OTHER',
-      ];
+      return ['OTHER', 'INTERNATIONAL', 'COMEDY', 'ROMANCE', 'EVENT'];
     }
 
     const categories = configuredCategories
@@ -205,5 +208,17 @@ export class ThreadsBotService {
       );
 
     return categories.length > 0 ? categories : ['NATIONAL'];
+  }
+
+  private getCandidateLimitPerCategory(maxPosts: number): number {
+    const configuredLimit = Number(
+      process.env.THREADS_SCAN_CANDIDATES_PER_CATEGORY ?? maxPosts * 3,
+    );
+
+    if (!Number.isInteger(configuredLimit) || configuredLimit < 1) {
+      return Math.max(3, maxPosts);
+    }
+
+    return Math.min(configuredLimit, 20);
   }
 }

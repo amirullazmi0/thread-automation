@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { CaptionNewsItem, OpenAiResponsePayload } from './dto/threads-bot.dto';
 
+type EngagementMode = 'debate' | 'hot_take' | 'dilemma' | 'relatable_question';
+
 @Injectable()
 export class AiCaptionService {
   private readonly logger = new Logger(AiCaptionService.name);
@@ -41,13 +43,14 @@ export class AiCaptionService {
     try {
       const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
+        signal: AbortSignal.timeout(this.getOpenAiTimeoutMs()),
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           model: process.env.OPENAI_MODEL ?? 'gpt-4.1-nano',
-          instructions: this.buildOpenAiInstructions(isUpdate),
+          instructions: this.buildOpenAiInstructions(item, isUpdate),
           input: this.buildOpenAiInput(item),
           max_output_tokens: this.getOpenAiMaxOutputTokens(),
         }),
@@ -80,18 +83,28 @@ export class AiCaptionService {
 
   // Builds the system instructions for the OpenAI caption request.
   private buildOpenAiInstructions(
+    item: CaptionNewsItem,
     isUpdate: boolean,
     sourceUrlLength: number = 0,
   ): string {
     // Batas keras Threads adalah 500 karakter.
     // Kita kurangi panjang URL kamu dan space amandemen (25 karakter).
     const maxAiCharacters = 500 - sourceUrlLength - 25;
+    const engagementMode = this.selectEngagementMode(item);
 
     return [
-      'Kamu adalah bot otomatis yang menulis ringkasan berita MICRO-BLOGGING untuk Threads.',
-      'Gaya: Sangat ringkas, padat informasi, natural, langsung ke inti berita (no basa-basi/no clickbait).',
+      'Kamu adalah bot gosip hiburan yang menulis caption MICRO-BLOGGING untuk Threads.',
+      'Gaya: gosip banget, rame, natural, kayak lagi spill di tongkrongan. Pakai hook yang bikin orang pengin nimbrung, boleh pakai ekspresi seperti "yall", "waduh", "serius deh", atau "ini rame banget" secukupnya.',
+      'Tetap akurat: jangan memfitnah, jangan menuduh, jangan menghakimi, dan jangan menambah drama/fakta baru di luar data berita.',
       '',
-      '⚠️ ATURAN EMERGENSI & SANGAT KETAT ⚠️',
+      'STRATEGI ENGAGEMENT:',
+      `- Mode post hari ini: ${engagementMode}.`,
+      `- ${this.describeEngagementMode(engagementMode)}`,
+      '- Caption harus punya sudut pandang yang jelas, bukan ringkasan datar.',
+      '- Akhiri paragraf utama dengan pertanyaan yang bikin orang ingin komentar.',
+      '- Pertanyaan boleh bikin audiens memilih kubu, tapi tetap aman dan tidak menyerang individu/kelompok.',
+      '',
+      'ATURAN EMERGENSI & SANGAT KETAT',
       `- Total seluruh teks yang kamu hasilkan HARUS DI BAWAH ${maxAiCharacters} KARAKTER!`,
       '- Jika teks yang kamu hasilkan lebih dari batas tersebut, sistem akan error. Jadi tulislah dengan SANGAT RINGKAS.',
       '- CUKUP BUAT 1 SAMPAI 2 PARAGRAF PENDEK SAJA (Maksimal 2-3 kalimat per paragraf).',
@@ -99,7 +112,7 @@ export class AiCaptionService {
       'FORMAT OBLIGATORI:',
       isUpdate
         ? '- Baris pertama WAJIB diawali: "[UPDATE TERBARU]"'
-        : '- Langsung mulai dengan inti berita. JANGAN pakai kata pengantar atau judul lagi.',
+        : '- Langsung mulai dengan hook gosip dari inti berita. JANGAN pakai kata pengantar atau judul lagi.',
       '- JANGAN pernah menulis URL atau link web apa pun di dalam teks!',
       '- Taruh 2 hashtag saja di baris paling akhir (pisahkan dengan enter dari paragraf utama).',
       '',
@@ -175,13 +188,24 @@ export class AiCaptionService {
     const lowerHeadline = headline.toLowerCase();
 
     if (
+      /(artis|seleb|selebriti|aktor|aktris|penyanyi|influencer|youtuber|tiktoker|viral|hiburan|film|sinetron|konser|musik|drama|klarifikasi|pacar|nikah|cerai|putus|selingkuh)/i.test(
+        lowerHeadline,
+      )
+    ) {
+      return [
+        'Yall, ini langsung jadi bahan omongan karena nama yang kebawa lumayan menarik perhatian publik. Detail resminya masih harus ngikut sumber, tapi respons netizen biasanya cepat banget kalau urusannya dunia hiburan.',
+        'Menurut lo, ini bakal melebar jadi drama panjang atau kelar setelah ada klarifikasi?',
+      ].join('\n\n');
+    }
+
+    if (
       /(ekonomi|investasi|bisnis|pasar|industri|perbankan|umkm)/i.test(
         lowerHeadline,
       )
     ) {
       return [
         'Kabar ini menarik karena Jakarta masih sering menjadi barometer utama aktivitas ekonomi nasional. Pergerakan bisnis, kebijakan, dan konsumsi di ibu kota biasanya ikut memengaruhi sentimen pelaku usaha di daerah lain.',
-        'Yang perlu dilihat berikutnya adalah apakah perkembangan ini berdampak langsung ke lapangan: arus investasi, pembukaan kerja sama baru, daya beli masyarakat, atau respons sektor usaha. Kalau momentumnya kuat, efeknya bisa terasa bukan cuma di Jakarta, tapi juga ke rantai ekonomi nasional.',
+        'Menurut lo, efeknya bakal terasa beneran ke masyarakat atau cuma ramai di level headline?',
       ].join('\n\n');
     }
 
@@ -190,7 +214,7 @@ export class AiCaptionService {
     ) {
       return [
         'Isu teknologi seperti ini penting dipantau karena dampaknya biasanya tidak berhenti di satu sektor saja. Perubahan di layanan digital, infrastruktur, atau regulasi teknologi bisa berpengaruh ke cara masyarakat bekerja, bertransaksi, dan mengakses layanan publik.',
-        'Fokus berikutnya ada pada implementasinya: apakah manfaatnya bisa dirasakan pengguna, apakah pelaku usaha siap beradaptasi, dan apakah ada perlindungan yang cukup untuk data serta keamanan masyarakat.',
+        'Lo lebih lihat ini sebagai peluang besar atau justru risiko baru buat pengguna?',
       ].join('\n\n');
     }
 
@@ -201,15 +225,56 @@ export class AiCaptionService {
     ) {
       return [
         'Topik ini perlu jadi perhatian karena urusan bencana dan mitigasi selalu berkaitan langsung dengan keselamatan warga. Di wilayah padat seperti Jakarta dan sekitarnya, respons cepat, informasi yang jelas, dan kesiapan fasilitas publik bisa menentukan seberapa besar dampak yang dirasakan masyarakat.',
-        'Hal yang penting dipantau setelah ini adalah koordinasi antarinstansi, kondisi warga terdampak, serta langkah pencegahan agar kejadian serupa tidak berulang dengan skala yang lebih besar.',
+        'Menurut lo, yang paling krusial sekarang respons cepat atau pencegahan jangka panjang?',
       ].join('\n\n');
     }
 
     return [
-      'Kabar ini layak dipantau karena menyentuh isu publik yang bisa berkembang dalam beberapa arah, mulai dari respons pemerintah, dampak ke masyarakat, sampai tindak lanjut dari pihak terkait.',
-      'Untuk pembaca di Jakarta dan wilayah urban lain, isu seperti ini biasanya penting bukan hanya karena peristiwanya, tapi juga karena efek lanjutannya: kebijakan yang berubah, layanan publik yang ikut terdampak, atau munculnya respons dari pelaku usaha dan warga.',
-      'Perkembangan berikutnya akan menentukan apakah kabar ini berhenti sebagai informasi singkat atau menjadi isu yang lebih besar dalam beberapa hari ke depan.',
+      'Yall, kabar ini lumayan rame karena bisa jadi bahan obrolan publik dari beberapa sisi. Detailnya tetap perlu ngikut sumber resmi, tapi momentumnya cukup menarik buat dipantau.',
+      'Menurut lo, ini bakal lanjut jadi pembahasan serius atau cuma lewat sebentar di timeline?',
     ].join('\n\n');
+  }
+
+  // Picks a caption angle that nudges comments without making every post feel identical.
+  private selectEngagementMode(item: CaptionNewsItem): EngagementMode {
+    const text = `${item.title} ${item.description}`.toLowerCase();
+
+    if (
+      /(pacar|nikah|cerai|putus|selingkuh|asmara|relationship|klarifikasi)/i.test(
+        text,
+      )
+    ) {
+      return 'debate';
+    }
+
+    if (/(viral|drama|kontroversi|ramai|netizen|heboh)/i.test(text)) {
+      return 'hot_take';
+    }
+
+    if (
+      /(ekonomi|bisnis|teknologi|digital|ai|aturan|kebijakan|jakarta)/i.test(
+        text,
+      )
+    ) {
+      return 'dilemma';
+    }
+
+    return 'relatable_question';
+  }
+
+  private describeEngagementMode(mode: EngagementMode): string {
+    const descriptions: Record<EngagementMode, string> = {
+      debate:
+        'Buat audiens merasa harus memilih kubu, misalnya setuju vs tidak setuju atau Tim A vs Tim B.',
+      hot_take:
+        'Ambil opini tajam yang masih aman, lalu undang pembaca membantah atau menambahkan angle lain.',
+      dilemma:
+        'Tampilkan dua sisi yang sama-sama masuk akal, tanpa memberi jawaban final.',
+      relatable_question:
+        'Tarik topik ke pengalaman sehari-hari audiens dan tutup dengan pertanyaan personal yang gampang dijawab.',
+    };
+
+    return descriptions[mode];
   }
 
   // Removes the source suffix from Google News style titles.
@@ -304,24 +369,28 @@ export class AiCaptionService {
   // Builds two or three local fallback hashtags from the news topic.
   private buildHashtags(item: CaptionNewsItem): string[] {
     const text = `${item.title} ${item.description}`.toLowerCase();
-    const hashtags = ['#BeritaIndonesia'];
+    const hashtags = ['#GosipTerkini'];
 
-    if (/(jakarta|dki|jabodetabek)/i.test(text)) {
+    if (
+      /(artis|seleb|selebriti|aktor|aktris|penyanyi|influencer|youtuber|tiktoker|hiburan)/i.test(
+        text,
+      )
+    ) {
+      hashtags.push('#DuniaHiburan');
+    } else if (/(viral|netizen|klarifikasi|drama)/i.test(text)) {
+      hashtags.push('#LagiRame');
+    } else if (/(film|sinetron|series|konser|musik|lagu)/i.test(text)) {
+      hashtags.push('#Entertainment');
+    } else if (/(pacar|nikah|cerai|putus|asmara|relationship)/i.test(text)) {
+      hashtags.push('#GosipArtis');
+    } else if (/(jakarta|dki|jabodetabek)/i.test(text)) {
       hashtags.push('#Jakarta');
-    }
-
-    if (/(ekonomi|bisnis|investasi|ritel|umkm|pasar)/i.test(text)) {
-      hashtags.push('#Ekonomi');
-    } else if (/(teknologi|digital|ai|startup|internet|siber)/i.test(text)) {
-      hashtags.push('#Teknologi');
-    } else if (/(bencana|banjir|cuaca|gempa|kebakaran|mitigasi)/i.test(text)) {
-      hashtags.push('#InfoPublik');
     } else {
-      hashtags.push('#KabarTerkini');
+      hashtags.push('#SpillBerita');
     }
 
     if (hashtags.length < 3) {
-      hashtags.push('#TurtleUpdate');
+      hashtags.push('#TurtleSpill');
     }
 
     return hashtags.slice(0, 3);
@@ -362,6 +431,16 @@ export class AiCaptionService {
     }
 
     return Math.min(configuredTokens, 500);
+  }
+
+  private getOpenAiTimeoutMs(): number {
+    const configuredTimeout = Number(process.env.OPENAI_TIMEOUT_MS ?? 20_000);
+
+    if (!Number.isInteger(configuredTimeout) || configuredTimeout < 1_000) {
+      return 20_000;
+    }
+
+    return Math.min(configuredTimeout, 60_000);
   }
 
   // Checks the in-memory daily OpenAI caption budget.

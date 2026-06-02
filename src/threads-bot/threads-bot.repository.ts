@@ -30,7 +30,10 @@ export class ThreadsBotRepository {
   constructor(private readonly httpService: HttpService) {}
 
   // Loads news from a custom endpoint when set, otherwise falls back to Google News RSS.
-  async fetchLatestNews(category?: NewsCategory): Promise<RawNewsItem[]> {
+  async fetchLatestNews(
+    category?: NewsCategory,
+    maxItemsOverride?: number,
+  ): Promise<RawNewsItem[]> {
     const endpoint = process.env.NEWS_SOURCE_URL;
 
     if (endpoint) {
@@ -44,7 +47,7 @@ export class ThreadsBotRepository {
       return this.parseConfiguredNewsSource(response.data, endpoint, category);
     }
 
-    return this.fetchGoogleNewsRss(category);
+    return this.fetchGoogleNewsRss(category, maxItemsOverride);
   }
 
   // Downloads the article image to a temporary local file for Playwright upload.
@@ -86,7 +89,7 @@ export class ThreadsBotRepository {
 
       this.logger.log(`Downloaded source image: ${item.imageUrl}`);
       return imagePath;
-    } catch (error) {
+    } catch {
       this.logger.warn(`Failed to download source image: ${item.imageUrl}`);
       return null;
     }
@@ -104,9 +107,10 @@ export class ThreadsBotRepository {
   // Fetches all configured Google News queries and returns deduped resolved articles.
   private async fetchGoogleNewsRss(
     category: NewsCategory = 'NATIONAL',
+    maxItemsOverride?: number,
   ): Promise<RawNewsItem[]> {
     const queries = this.getGoogleNewsQueries(category);
-    const maxItems = Number(process.env.GOOGLE_NEWS_MAX_ITEMS ?? 20);
+    const maxItems = this.getGoogleNewsMaxItems(maxItemsOverride);
     const newsByUrl = new Map<string, RawNewsItem>();
 
     for (const query of queries) {
@@ -125,7 +129,19 @@ export class ThreadsBotRepository {
           continue;
         }
 
+        if (!this.isFreshNewsItem(enrichedItem)) {
+          continue;
+        }
+
         newsByUrl.set(enrichedItem.sourceUrl, enrichedItem);
+
+        if (newsByUrl.size >= maxItems) {
+          break;
+        }
+      }
+
+      if (newsByUrl.size >= maxItems) {
+        break;
       }
     }
 
@@ -164,6 +180,7 @@ export class ThreadsBotRepository {
           .filter((item): item is RawNewsItem => Boolean(item))
           .map((item) => this.applyRequestedCategory(item, category))
           .filter((item) => this.matchesRequestedCategory(item, category))
+          .filter((item) => this.isFreshNewsItem(item))
           .filter((item) => this.isAllowedNewsItem(item));
       }
 
@@ -200,6 +217,7 @@ export class ThreadsBotRepository {
       .map((item) => this.toRawNewsItemFromFeed(item, endpoint, category))
       .filter((item): item is RawNewsItem => Boolean(item))
       .filter((item) => this.matchesRequestedCategory(item, category))
+      .filter((item) => this.isFreshNewsItem(item))
       .filter((item) => this.isAllowedNewsItem(item, sourceHint));
   }
 
@@ -209,6 +227,7 @@ export class ThreadsBotRepository {
       this.httpService.get<string>(this.buildGoogleNewsRssUrl(query), {
         proxy: false,
         responseType: 'text',
+        timeout: 15_000,
       }),
     );
     const parsed = this.xmlParser.parse(response.data) as GoogleNewsRss;
@@ -218,13 +237,15 @@ export class ThreadsBotRepository {
     return items
       .map((item) => this.toRawNewsItem(item))
       .filter((item): item is RawNewsItem => Boolean(item))
+      .filter((item) => this.isFreshNewsItem(item))
       .filter((item) => this.isAllowedNewsItem(item));
   }
 
   // Builds the Google News RSS search URL for one keyword query.
   private buildGoogleNewsRssUrl(query: string): string {
+    const freshQuery = this.withGoogleNewsFreshnessOperator(query);
     const params = new URLSearchParams({
-      q: query,
+      q: freshQuery,
       hl: 'id',
       gl: 'ID',
       ceid: 'ID:id',
@@ -252,17 +273,40 @@ export class ThreadsBotRepository {
 
   private getDefaultGoogleNewsQueries(category: NewsCategory): string[] {
     const queriesByCategory: Record<NewsCategory, string[]> = {
-      NATIONAL: ['berita nasional Indonesia terkini'],
-      INTERNATIONAL: ['berita internasional terkini dunia'],
-      SPORT: ['berita olahraga Indonesia sepak bola badminton'],
-      EVENT: ['event konser festival pameran Indonesia terbaru'],
-      ZODIAC: ['zodiak hari ini ramalan bintang'],
-      ROMANCE: ['relationship asmara percintaan tips hubungan'],
-      COMEDY: ['komedi viral lucu hiburan Indonesia'],
-      OTHER: ['berita viral Indonesia terkini'],
+      NATIONAL: ['gosip artis Indonesia terbaru'],
+      INTERNATIONAL: [
+        'celebrity gossip terbaru dunia',
+        'Hollywood celebrity gossip terbaru',
+        'K-pop idol scandal news',
+        'drama selebriti internasional terbaru',
+      ],
+      SPORT: ['gosip atlet selebriti olahraga viral'],
+      EVENT: ['gosip konser festival artis Indonesia terbaru'],
+      ZODIAC: ['zodiak selebriti ramalan bintang viral'],
+      ROMANCE: ['gosip artis pacaran nikah cerai putus terbaru'],
+      COMEDY: ['drama seleb viral lucu hiburan Indonesia'],
+      OTHER: ['gosip artis viral Indonesia terbaru', 'celebrity gossip viral'],
     };
 
     return queriesByCategory[category];
+  }
+
+  private getGoogleNewsMaxItems(maxItemsOverride?: number): number {
+    if (
+      Number.isInteger(maxItemsOverride) &&
+      maxItemsOverride !== undefined &&
+      maxItemsOverride > 0
+    ) {
+      return maxItemsOverride;
+    }
+
+    const configuredMaxItems = Number(process.env.GOOGLE_NEWS_MAX_ITEMS ?? 20);
+
+    if (!Number.isInteger(configuredMaxItems) || configuredMaxItems < 1) {
+      return 20;
+    }
+
+    return configuredMaxItems;
   }
 
   // Converts one RSS item into the internal news item shape.
@@ -277,6 +321,7 @@ export class ThreadsBotRepository {
       sourceUrl: item.link,
       imageUrl: null,
       category: null,
+      publishedAt: this.normalizePublishedAt(item.pubDate),
     };
   }
 
@@ -301,6 +346,7 @@ export class ThreadsBotRepository {
       sourceUrl,
       imageUrl: this.extractFeedItemImageUrl(item, baseUrl),
       category,
+      publishedAt: this.extractFeedItemPublishedAt(item),
     };
   }
 
@@ -310,7 +356,7 @@ export class ThreadsBotRepository {
 
     try {
       articleUrl = await this.resolveArticleUrl(item.sourceUrl);
-    } catch (error) {
+    } catch {
       this.logger.warn(
         `Failed to resolve news URL; using RSS link: ${item.sourceUrl}`,
       );
@@ -324,8 +370,9 @@ export class ThreadsBotRepository {
         ...item,
         sourceUrl: articleUrl,
         imageUrl: articleMetadata.imageUrl,
+        publishedAt: item.publishedAt ?? articleMetadata.publishedAt,
       };
-    } catch (error) {
+    } catch {
       this.logger.warn(
         `Failed to fetch article metadata; using article URL without image: ${articleUrl}`,
       );
@@ -354,6 +401,7 @@ export class ThreadsBotRepository {
         maxRedirects: 5,
         proxy: false,
         responseType: 'text',
+        timeout: 15_000,
         validateStatus: (status) => status >= 200 && status < 400,
       }),
     );
@@ -375,12 +423,44 @@ export class ThreadsBotRepository {
 
   // Calls Google News' internal resolver endpoint for RSS article IDs.
   private async decodeGoogleNewsUrl(url: string): Promise<string | null> {
-    const decodeParams = await this.fetchGoogleNewsDecodeParams(url);
+    const articleId = this.getGoogleNewsArticleId(url);
 
-    if (!decodeParams) {
+    if (!articleId) {
       return null;
     }
 
+    const decodeParams = await this.fetchGoogleNewsDecodeParams(url).catch(
+      () => null,
+    );
+
+    if (decodeParams) {
+      try {
+        const decodedUrl = await this.decodeGoogleNewsSignedUrl(decodeParams);
+
+        if (decodedUrl) {
+          return decodedUrl;
+        }
+      } catch {
+        // Fall back to the generic article ID flow below.
+      }
+    }
+
+    try {
+      const decodedUrl = await this.decodeGoogleNewsArticleId(articleId);
+
+      if (decodedUrl) {
+        return decodedUrl;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private async decodeGoogleNewsSignedUrl(
+    decodeParams: GoogleNewsDecodeParams,
+  ): Promise<string | null> {
     // Google News RSS links are wrappers. This internal RPC is the only
     // reliable way we found to get the publisher URL before scraping og:image.
     const batchPayload = JSON.stringify([
@@ -431,13 +511,88 @@ export class ThreadsBotRepository {
 
     const response = await firstValueFrom(
       this.httpService.post<string>(
-        'https://news.google.com/_/DotsSplashUi/data/batchexecute',
+        'https://news.google.com/_/DotsSplashUi/data/batchexecute?rpcids=Fbv4je',
         `f.req=${encodeURIComponent(batchPayload)}`,
         {
           proxy: false,
           responseType: 'text',
+          timeout: 10_000,
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+            'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
+            Referer: 'https://news.google.com/',
+            'User-Agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+        },
+      ),
+    );
+
+    return this.extractDecodedGoogleNewsUrl(response.data);
+  }
+
+  private async decodeGoogleNewsArticleId(
+    articleId: string,
+  ): Promise<string | null> {
+    const batchPayload = JSON.stringify([
+      [
+        [
+          'Fbv4je',
+          JSON.stringify([
+            'garturlreq',
+            [
+              [
+                'en-US',
+                'US',
+                ['FINANCE_TOP_INDICES', 'WEB_TEST_1_0_0'],
+                null,
+                null,
+                1,
+                1,
+                'US:en',
+                null,
+                180,
+                null,
+                null,
+                null,
+                null,
+                null,
+                0,
+                null,
+                null,
+                [1608992183, 723341000],
+              ],
+              'en-US',
+              'US',
+              1,
+              [2, 3, 4, 8],
+              1,
+              0,
+              '655000234',
+              0,
+              0,
+              null,
+              0,
+            ],
+            articleId,
+          ]),
+          null,
+          'generic',
+        ],
+      ],
+    ]);
+
+    const response = await firstValueFrom(
+      this.httpService.post<string>(
+        'https://news.google.com/_/DotsSplashUi/data/batchexecute?rpcids=Fbv4je',
+        `f.req=${encodeURIComponent(batchPayload)}`,
+        {
+          proxy: false,
+          responseType: 'text',
+          timeout: 10_000,
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded;charset=utf-8',
+            'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
             Referer: 'https://news.google.com/',
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
@@ -459,10 +614,14 @@ export class ThreadsBotRepository {
       return null;
     }
 
-    const response = await firstValueFrom(
-      this.httpService.get<string>(
-        `https://news.google.com/articles/${articleId}`,
-        {
+    const decodeParamUrls = [
+      `https://news.google.com/articles/${articleId}`,
+      `https://news.google.com/rss/articles/${articleId}`,
+    ];
+
+    for (const decodeParamUrl of decodeParamUrls) {
+      const response = await firstValueFrom(
+        this.httpService.get<string>(decodeParamUrl, {
           proxy: false,
           responseType: 'text',
           timeout: 15_000,
@@ -470,22 +629,26 @@ export class ThreadsBotRepository {
             'User-Agent':
               'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           },
-        },
-      ),
-    );
+        }),
+      ).catch(() => null);
 
-    const signature = this.extractHtmlAttribute(response.data, 'data-n-a-sg');
-    const timestamp = this.extractHtmlAttribute(response.data, 'data-n-a-ts');
+      if (!response) {
+        continue;
+      }
 
-    if (!signature || !timestamp) {
-      return null;
+      const signature = this.extractHtmlAttribute(response.data, 'data-n-a-sg');
+      const timestamp = this.extractHtmlAttribute(response.data, 'data-n-a-ts');
+
+      if (signature && timestamp) {
+        return {
+          articleId,
+          signature,
+          timestamp,
+        };
+      }
     }
 
-    return {
-      articleId,
-      signature,
-      timestamp,
-    };
+    return null;
   }
 
   // Extracts the opaque article ID from a Google News RSS URL.
@@ -509,17 +672,38 @@ export class ThreadsBotRepository {
       return null;
     }
 
-    const payload = JSON.parse(payloadLine) as Array<Array<string>>;
+    const payload = JSON.parse(payloadLine) as Array<Array<unknown>>;
     const encodedResult = payload[0]?.[2];
 
-    if (!encodedResult) {
+    if (typeof encodedResult !== 'string') {
       return null;
     }
 
-    const decodedResult = JSON.parse(encodedResult) as unknown[];
-    const publisherUrl = decodedResult[1];
+    const decodedResult = JSON.parse(encodedResult) as unknown;
 
-    return typeof publisherUrl === 'string' ? publisherUrl : null;
+    return this.findPublisherUrl(decodedResult);
+  }
+
+  private findPublisherUrl(value: unknown): string | null {
+    if (typeof value === 'string') {
+      return value.startsWith('http') && !this.isGoogleNewsUrl(value)
+        ? value
+        : null;
+    }
+
+    if (!Array.isArray(value)) {
+      return null;
+    }
+
+    for (const item of value) {
+      const publisherUrl = this.findPublisherUrl(item);
+
+      if (publisherUrl) {
+        return publisherUrl;
+      }
+    }
+
+    return null;
   }
 
   // Fetches an article page and returns metadata needed for posting.
@@ -539,6 +723,7 @@ export class ThreadsBotRepository {
 
     return {
       imageUrl: this.extractImageUrl(response.data, url),
+      publishedAt: this.extractArticlePublishedAt(response.data),
     };
   }
 
@@ -602,7 +787,93 @@ export class ThreadsBotRepository {
       sourceUrl: item.sourceUrl,
       imageUrl: item.imageUrl ?? null,
       category: this.normalizeCategory(item.category),
+      publishedAt: this.normalizePublishedAt(item.publishedAt),
     };
+  }
+
+  private isFreshNewsItem(item: RawNewsItem): boolean {
+    const maxAgeDays = this.getMaxNewsAgeDays();
+
+    if (maxAgeDays <= 0) {
+      return true;
+    }
+
+    if (!item.publishedAt) {
+      this.logger.log(`Skipping undated news item: ${item.title}`);
+      return false;
+    }
+
+    const publishedAt = Date.parse(item.publishedAt);
+
+    if (Number.isNaN(publishedAt)) {
+      this.logger.log(`Skipping news item with invalid date: ${item.title}`);
+      return false;
+    }
+
+    const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+    const ageMs = Date.now() - publishedAt;
+    const isFresh = ageMs >= 0 && ageMs <= maxAgeMs;
+
+    if (!isFresh) {
+      this.logger.log(
+        `Skipping stale news item older than ${maxAgeDays} day(s): ${item.title}`,
+      );
+    }
+
+    return isFresh;
+  }
+
+  private getMaxNewsAgeDays(): number {
+    const configuredDays = Number(process.env.THREADS_MAX_NEWS_AGE_DAYS ?? 2);
+
+    if (!Number.isInteger(configuredDays) || configuredDays < 0) {
+      return 2;
+    }
+
+    return Math.min(configuredDays, 30);
+  }
+
+  private withGoogleNewsFreshnessOperator(query: string): string {
+    if (/\bwhen:\d+[dhm]\b/i.test(query)) {
+      return query;
+    }
+
+    return `${query} when:${this.getMaxNewsAgeDays()}d`;
+  }
+
+  private extractFeedItemPublishedAt(item: NewsFeedItem): string | null {
+    return this.normalizePublishedAt(
+      item.pubDate ??
+        item.published ??
+        item.updated ??
+        item['dc:date'] ??
+        item.isoDate,
+    );
+  }
+
+  private extractArticlePublishedAt(html: string): string | null {
+    return this.normalizePublishedAt(
+      this.extractMetaContent(html, 'property', 'article:published_time') ||
+        this.extractMetaContent(html, 'property', 'og:published_time') ||
+        this.extractMetaContent(html, 'name', 'pubdate') ||
+        this.extractMetaContent(html, 'name', 'publishdate') ||
+        this.extractMetaContent(html, 'name', 'timestamp') ||
+        this.extractMetaContent(html, 'itemprop', 'datePublished'),
+    );
+  }
+
+  private normalizePublishedAt(value?: string | null): string | null {
+    if (!value) {
+      return null;
+    }
+
+    const parsedDate = new Date(value);
+
+    if (Number.isNaN(parsedDate.getTime())) {
+      return null;
+    }
+
+    return parsedDate.toISOString();
   }
 
   private applyRequestedCategory(
@@ -698,13 +969,21 @@ export class ThreadsBotRepository {
       }
     }
 
+    const searchableText = `${item.title} ${item.description}`.toLowerCase();
+
+    if (this.hasStaleYearReference(searchableText)) {
+      this.logger.log(
+        `Skipping news item with stale year reference: ${item.title}`,
+      );
+      return false;
+    }
+
     const excludedTerms = this.getExcludedTerms();
 
     if (excludedTerms.length === 0) {
       return true;
     }
 
-    const searchableText = `${item.title} ${item.description}`.toLowerCase();
     const excludedTerm = excludedTerms.find((term) =>
       searchableText.includes(term.toLowerCase()),
     );
@@ -717,6 +996,13 @@ export class ThreadsBotRepository {
     }
 
     return true;
+  }
+
+  private hasStaleYearReference(text: string): boolean {
+    const currentYear = new Date().getFullYear();
+    const years = text.match(/\b20\d{2}\b/g) ?? [];
+
+    return years.some((year) => Number(year) < currentYear);
   }
 
   // Builds a stable hash for image file naming and content tracking.

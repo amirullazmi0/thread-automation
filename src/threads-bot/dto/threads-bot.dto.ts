@@ -17,6 +17,7 @@ export interface RawNewsItem {
   sourceUrl: string;
   imageUrl?: string | null;
   category?: NewsCategory | null;
+  publishedAt?: string | null;
 }
 
 export interface CaptionNewsItem {
@@ -37,6 +38,7 @@ export interface GoogleNewsRssItem {
   title?: string;
   link?: string;
   description?: string;
+  pubDate?: string;
 }
 
 export interface NewsFeedDocument {
@@ -56,12 +58,18 @@ export interface NewsFeedItem {
   description?: string;
   summary?: string;
   content?: string;
+  pubDate?: string;
+  published?: string;
+  updated?: string;
+  'dc:date'?: string;
+  isoDate?: string;
   'media:content'?: { '@_url'?: string } | Array<{ '@_url'?: string }>;
   enclosure?: { '@_url'?: string } | Array<{ '@_url'?: string }>;
 }
 
 export interface ArticleMetadata {
   imageUrl: string | null;
+  publishedAt: string | null;
 }
 
 export interface GoogleNewsDecodeParams {
