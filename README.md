@@ -339,6 +339,7 @@ Deploy:
 yarn deploy:vps
 ```
 
+The deploy script targets the CapRover app `turtle-threads`.
 `captain-definition` points to `./Dockerfile`. On startup, the container runs:
 
 ```bash
@@ -354,6 +355,7 @@ MANUAL_TRIGGER_TOKEN=...
 THREADS_HEADLESS=true
 THREADS_MANUAL_LOGIN=false
 THREADS_SESSION_PATH=/app/data/threads-session.json
+THREADS_BROWSER_CHANNEL=
 THREADS_LOGIN_PROVIDER=instagram
 THREADS_INSTAGRAM_USERNAME=...
 THREADS_INSTAGRAM_PASSWORD=...
@@ -363,6 +365,11 @@ OPENAI_MAX_OUTPUT_TOKENS=220
 OPENAI_DAILY_CAPTION_LIMIT=30
 THREADS_MAX_NEWS_AGE_DAYS=2
 ```
+
+For VPS/CapRover, keep `THREADS_HEADLESS=true`, `THREADS_MANUAL_LOGIN=false`,
+and leave `THREADS_BROWSER_CHANNEL` empty. Do not use `msedge` on the VPS unless
+Edge is explicitly installed in the container. The Docker image already includes
+Playwright Chromium and its Linux dependencies, so no GUI is required.
 
 Create a persistent directory or volume for `/app/data` if you want the saved
 Threads session to survive redeploys. Put `threads-session.json` there as:
