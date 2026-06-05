@@ -24,22 +24,22 @@ export class ThreadsBotService {
   ) {}
 
   // Runs the scheduled posting loop when THREADS_AUTO_SCHEDULE is enabled.
-  @Cron(CronExpression.EVERY_30_MINUTES)
-  async runHourlyTrendLoop(): Promise<void> {
+  @Cron(CronExpression.EVERY_2_HOURS)
+  async runScheduledTrendLoop(): Promise<void> {
     if (process.env.THREADS_AUTO_SCHEDULE !== 'true') {
       this.logger.log(
-        'Hourly trends scan skipped; THREADS_AUTO_SCHEDULE is not true',
+        'Scheduled trends scan skipped; THREADS_AUTO_SCHEDULE is not true',
       );
       return;
     }
 
-    this.logger.log('Starting hourly trends scan');
+    this.logger.log('Starting scheduled trends scan');
 
     try {
       const maxPosts = Number(process.env.THREADS_SCHEDULE_MAX_POSTS ?? 1);
       await this.runPostingLoop(maxPosts);
     } catch (error) {
-      this.logger.error('Hourly trends scan failed', error);
+      this.logger.error('Scheduled trends scan failed', error);
       throw error;
     }
   }

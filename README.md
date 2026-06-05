@@ -220,7 +220,7 @@ the endpoint does not require the `x-manual-trigger-token` header.
 
 ## Scheduling
 
-The scheduler checks every 30 minutes, but it only posts when:
+The scheduler runs every 2 hours, but it only posts when:
 
 ```text
 THREADS_AUTO_SCHEDULE=true
